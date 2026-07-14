@@ -38,6 +38,8 @@ The output is JSON:
 {
   "hasKey": true,
   "keyPreview": "sk-1aa1...aa4d",
+  "apiSite": "new",
+  "apiBase": "https://cn2.gw.opentoken.io/v1/images/generations",
   "quickMode": { "quality": "2K", "ratio": "square", "count": 1 },
   "batchMode": { "quality": "2K", "ratio": "landscape", "concurrency": 3 }
 }
@@ -49,21 +51,57 @@ Fields can be `null` if not yet configured.
 
 | # | Condition | Go to |
 |---|-----------|-------|
-| 1 | `hasKey` is `false` | → **Branch A**: First-time Wizard |
-| 2 | `hasKey` is `true` AND `quickMode` is `null` | → **Branch A2**: Quick Mode Setup |
-| 3 | User intent is to modify config (keywords: 修改配置、设置、更改参数、配置、settings) | → **Branch C**: Modify Config |
-| 4 | User intent is batch generation (keywords: 批量、batch) | → **Branch D**: Batch Mode |
-| 5 | User intent is to edit an existing image (keywords: 编辑、修改图片、改一下、换背景、去掉、加上、变成、改成、edit、remove、replace — AND references an image or a previous generation exists) | → **Branch F**: Edit Image |
-| 6 | `quickMode` exists AND user message contains a prompt | → **Branch B**: Quick Mode |
-| 7 | `quickMode` exists AND user message has no clear prompt | → **Branch E**: Help |
+| 1 | `apiSite` is `null` | → **Branch A0**: Site Selection |
+| 2 | `hasKey` is `false` | → **Branch A**: First-time Wizard |
+| 3 | `hasKey` is `true` AND `quickMode` is `null` | → **Branch A2**: Quick Mode Setup |
+| 4 | User intent is to change API site directly (examples: 切到老站点、改成新站点、使用 api.opentoken.io、使用 cn2.gw.opentoken.io) | → **Branch C1**: Change Site Directly |
+| 5 | User intent is to change API Key directly (examples: 更新 API Key、更换 key、重新设置 key) | → **Branch C2**: Change API Key Directly |
+| 6 | User intent is to modify config (keywords: 修改配置、设置、更改参数、配置、settings) | → **Branch C**: Modify Config |
+| 7 | User intent is batch generation (keywords: 批量、batch) | → **Branch D**: Batch Mode |
+| 8 | User intent is to edit an existing image (keywords: 编辑、修改图片、改一下、换背景、去掉、加上、变成、改成、edit、remove、replace — AND references an image or a previous generation exists) | → **Branch F**: Edit Image |
+| 9 | `quickMode` exists AND user message contains a prompt | → **Branch B**: Quick Mode |
+| 10 | `quickMode` exists AND user message has no clear prompt | → **Branch E**: Help |
 
-**IMPORTANT**: Rules are ORDERED. Rule 3 beats Rule 6 — if the user says "修改配置", go to Branch C even though quickMode exists. Rule 4 beats Rule 6 — "批量生成猫" goes to Branch D, not Branch B. Rule 5 beats Rule 6 — "把背景换成海边" after a generation goes to Branch F, not Branch B.
+**IMPORTANT**: Rules are ORDERED. Rule 4 and Rule 5 beat Rule 9 — if the user clearly wants to change site or API Key, do that instead of generating. Rule 6 beats Rule 9 — if the user says "修改配置", go to Branch C even though quickMode exists. Rule 7 beats Rule 9 — "批量生成猫" goes to Branch D, not Branch B. Rule 8 beats Rule 9 — "把背景换成海边" after a generation goes to Branch F, not Branch B.
+
+---
+
+## Branch A0: 🌐 Site Selection
+
+The user has not chosen which OpenToken site to use. This step must happen before asking for an API Key.
+
+「📋 原样输出」
+
+> 👋 欢迎使用 **OpenToken Image Gen**！首次使用需要快速设置一下
+>
+> 🌐 **第一步：请选择你使用的站点**
+>
+> | 选项 | 站点 | Host |
+> |------|------|------|
+> | **新站点** _(推荐)_ | cn2 | cn2.gw.opentoken.io |
+> | **老站点** | legacy | api.opentoken.io |
+>
+> 请回复「新站点」或「老站点」。
+
+When the user chooses, run one of:
+
+```bash
+node "$SCRIPT" --set-site new
+node "$SCRIPT" --set-site old
+```
+
+**直接展示脚本输出，不要改写。**
+
+Then route based on current config:
+- If `hasKey` is `false`, continue to **Branch A W1** and ask for the API Key.
+- If `quickMode` is `null`, continue to **Branch A2**.
+- Otherwise continue routing the original request through the decision tree.
 
 ---
 
 ## Branch A: 🆕 First-time Wizard
 
-The user has never configured the plugin. Walk them through everything.
+The user has chosen a site but has not configured the API Key. Walk them through the remaining setup.
 
 ### W1: Welcome + API Key 🔑
 
@@ -71,11 +109,7 @@ The user has never configured the plugin. Walk them through everything.
 
 > 👋 欢迎使用 **OpenToken Image Gen**！首次使用需要快速设置一下
 >
-> 整个过程只需 30 秒，之后每次 @我 + 描述就直接出图 ⚡
->
-> ---
->
-> 🔑 **第一步：请提供你的 API Key**
+> 🔑 **第二步：请提供你的 API Key**
 >
 > 把你的 Key 粘贴给我，我会安全保存在本地，不会上传到任何地方 🔒
 
@@ -202,6 +236,7 @@ The user wants to change settings. First run `--get-config` if not already done 
 > |------|------|------|------|
 > | ⚡ 快速模式 | [Q] | [R] | 每次 [N] 张 |
 > | 📦 批量模式 | [Q or 未设置] | [R or —] | 并发 [N or —] |
+> | 🌐 站点 | [新站点/老站点] | [host] | |
 > | 🔑 API Key | [preview] | | |
 >
 > 要修改哪个？
@@ -210,15 +245,72 @@ The user wants to change settings. First run `--get-config` if not already done 
 >
 > 2️⃣ 📦 批量模式
 >
-> 3️⃣ 🔑 API Key
+> 3️⃣ 🌐 站点
+>
+> 4️⃣ 🔑 API Key
 
 Based on user choice:
 
 - **1️⃣ Quick Mode**: Run W2 → W3 → W4 → W5 from Branch A2. This overwrites the existing quickMode config.
 - **2️⃣ Batch Mode**: Run the batch setup flow from Branch D (first-time section). This overwrites or creates batchMode config.
-- **3️⃣ API Key**: Ask for new key, run `--set-key <NEW_KEY>`. **直接展示脚本输出。**
+- **3️⃣ Site**: Ask whether to use 新站点 or 老站点, then run `--set-site new` or `--set-site old`. **直接展示脚本输出。**
+- **4️⃣ API Key**: Ask for new key, run `--set-key <NEW_KEY>`. **直接展示脚本输出。**
 
 After saving, the script output already includes confirmation — do not add extra summary.
+
+Users may also update config later by natural-language requests, not only by saying "修改配置".
+
+---
+
+## Branch C1: 🌐 Change Site Directly
+
+Used when the user directly asks to switch sites after setup, for example:
+- "切到老站点"
+- "改成新站点"
+- "使用 api.opentoken.io"
+- "使用 cn2.gw.opentoken.io"
+
+If the target is already clear, run one of:
+
+```bash
+node "$SCRIPT" --set-site new
+node "$SCRIPT" --set-site old
+```
+
+**直接展示脚本输出，不要改写。**
+
+If the user only says they want to change the site but does not specify which one, ask:
+
+「📋 原样输出」
+
+> 🌐 要切换到哪个站点？
+>
+> 请回复「新站点」或「老站点」。
+
+Then run the matching `--set-site` command and directly show the script output.
+
+---
+
+## Branch C2: 🔑 Change API Key Directly
+
+Used when the user directly asks to update the API Key after setup, for example:
+- "更新 API Key"
+- "更换 key"
+- "重新设置 key"
+
+Ask for the new key directly:
+
+「📋 原样输出」
+
+> 🔑 请把新的 API Key 发给我，我会替换当前保存的 Key。
+
+When the user provides it, run:
+
+```bash
+node "$SCRIPT" --set-key <NEW_KEY>
+```
+
+**直接展示脚本输出，不要改写。**
 
 ---
 
@@ -437,12 +529,12 @@ These rules apply to ALL branches:
 | 503 "No available compatible accounts" | Wait 30s, retry once. If still fails, tell user the API is temporarily busy. |
 | 400 with size error | Fall back to closest valid size and retry. |
 | Timeout (generation 120s / edit 180s) | Report and offer to retry. |
-| Missing API key | Guide through `--set-key` setup (Branch A W1). |
+| Missing API key | Guide through site selection first if needed (Branch A0), then `--set-key` setup (Branch A W1). |
 | 安全校验失败 (extension / magic bytes / path / size) | Tell user the specific reason from the script output. Do NOT bypass validation. Suggest using a valid image file under an allowed directory. |
 
 ## Hard constraints
 
-- API base URL (`https://cn2.gw.opentoken.io/v1/images/generations`) and model (`gpt-image-2`) are hardcoded. **Never change them.**
+- API site is selected during setup. Old site uses `https://api.opentoken.io/v1/images/generations`; new site uses `https://cn2.gw.opentoken.io/v1/images/generations`. Model (`gpt-image-2`) is hardcoded. **Never change it.**
 - **Never display the user's full API key in chat.**
 - **--image files must pass 4-layer security validation**: extension whitelist (.png/.jpg/.jpeg/.webp), magic bytes check, file size ≤20MB, and no path traversal / sensitive directory access.
 - Maximum batch size: 20 prompts per run.

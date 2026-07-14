@@ -27,7 +27,7 @@ opentoken-image-gen/
 - 支持正方形、横版、竖版
 - 支持批量生成和并发控制
 - 支持基于已有图片的编辑
-- 本地保存 API Key、快速模式和批量模式配置
+- 本地保存站点、API Key、快速模式和批量模式配置
 
 ## 一键安装
 
@@ -70,16 +70,23 @@ SCRIPT="$HOME/plugins/opentoken-image-gen/scripts/generate.mjs"
 node ~/plugins/opentoken-image-gen/scripts/generate.mjs --get-config
 ```
 
-如果还没有配置 API Key，会看到 `hasKey: false`。
+如果还没有配置，会看到 `apiSite: null` 或 `hasKey: false`。
 
 ## 首次使用
 
 在 Codex 中触发该 skill 后，它会引导你：
 
-1. 输入 OpenToken API Key
-2. 选择默认画质：1K / 2K / 4K
-3. 选择默认比例：square / landscape / portrait
-4. 选择默认生成张数
+1. 选择站点：新站点 `cn2.gw.opentoken.io` 或老站点 `api.opentoken.io`
+2. 输入 OpenToken API Key
+3. 选择默认画质：1K / 2K / 4K
+4. 选择默认比例：square / landscape / portrait
+5. 选择默认生成张数
+
+后续如果要改配置，可以直接说：
+- `修改配置`
+- `切换到老站点`
+- `切换到新站点`
+- `更新 API Key`
 
 配置文件保存在：
 

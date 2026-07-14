@@ -4,9 +4,13 @@ import { writeFileSync, readFileSync, mkdirSync, existsSync, statSync } from "no
 import { join, dirname, basename, resolve, extname } from "node:path";
 import { homedir, tmpdir } from "node:os";
 
-const API_BASE = "https://cn2.gw.opentoken.io/v1/images/generations";
 const MODEL = "gpt-image-2";
 const CONFIG_PATH = join(homedir(), ".codex", "opentoken-image-gen-config.json");
+const API_SITES = {
+  old: { label: "老站点", host: "api.opentoken.io", base: "https://api.opentoken.io/v1/images/generations" },
+  new: { label: "新站点", host: "cn2.gw.opentoken.io", base: "https://cn2.gw.opentoken.io/v1/images/generations" },
+};
+const DEFAULT_API_SITE = "new";
 
 const SIZE_MATRIX = {
   "1K": { square: "1024x1024", landscape: "1536x1024", portrait: "1024x1536" },
@@ -133,6 +137,21 @@ function saveConfig(cfg) {
   writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
 }
 
+function normalizeApiSite(site) {
+  const s = String(site || "").toLowerCase();
+  if (["old", "legacy", "api.opentoken.io", "老", "老站点"].includes(s)) return "old";
+  if (["new", "cn2", "cn2.gw.opentoken.io", "新", "新站点"].includes(s)) return "new";
+  return null;
+}
+
+function resolveApiSite(cfg) {
+  return normalizeApiSite(cfg?.apiSite) || DEFAULT_API_SITE;
+}
+
+function resolveApiBase(cfg) {
+  return API_SITES[resolveApiSite(cfg)].base;
+}
+
 function getApiKey() {
   const cfg = loadConfig();
   if (!cfg?.apiKey) {
@@ -159,13 +178,13 @@ function resolveOutputDir(userDir) {
   return dir;
 }
 
-async function generate(apiKey, prompt, size, outputDir) {
+async function generate(apiKey, prompt, size, outputDir, apiBase) {
   const start = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 220_000);
 
   try {
-    const res = await fetch(API_BASE, {
+    const res = await fetch(apiBase, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model: MODEL, prompt, n: 1, size }),
@@ -197,7 +216,7 @@ async function generate(apiKey, prompt, size, outputDir) {
   }
 }
 
-async function editImage(apiKey, imagePath, prompt, size, outputDir, count = 1, silent = false) {
+async function editImage(apiKey, imagePath, prompt, size, outputDir, apiBase, count = 1, silent = false) {
   if (!existsSync(imagePath)) {
     return { ok: false, elapsed: 0, error: `文件不存在: ${imagePath}`, sourceName: basename(imagePath) };
   }
@@ -224,7 +243,7 @@ async function editImage(apiKey, imagePath, prompt, size, outputDir, count = 1, 
   const timeout = setTimeout(() => controller.abort(), 250_000);
 
   try {
-    const res = await fetch(API_BASE, {
+    const res = await fetch(apiBase, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model: MODEL, prompt, n: count, size, image: dataUrl }),
@@ -273,7 +292,7 @@ async function editImage(apiKey, imagePath, prompt, size, outputDir, count = 1, 
   }
 }
 
-async function runBatchEdit(apiKey, imagePaths, prompt, size, concurrency, outputDir) {
+async function runBatchEdit(apiKey, imagePaths, prompt, size, concurrency, outputDir, apiBase) {
   const total = imagePaths.length;
   console.log(`\n✏️ 批量编辑 ${total} 张\n`);
 
@@ -286,7 +305,7 @@ async function runBatchEdit(apiKey, imagePaths, prompt, size, concurrency, outpu
       const idx = nextIdx++;
       const imagePath = imagePaths[idx];
       console.log(`⏳ [${idx + 1}/${total}] ${basename(imagePath)}`);
-      const result = await editImage(apiKey, imagePath, prompt, size, outputDir, 1, true);
+      const result = await editImage(apiKey, imagePath, prompt, size, outputDir, apiBase, 1, true);
       results[idx] = result;
       if (result.ok) {
         console.log(`✅ [${idx + 1}/${total}] ${(result.elapsed / 1000).toFixed(1)}s`);
@@ -315,7 +334,7 @@ async function runBatchEdit(apiKey, imagePaths, prompt, size, concurrency, outpu
   return fail.length > 0 ? 1 : 0;
 }
 
-async function batchGenerate(apiKey, prompts, size, concurrency, outputDir, isVariation = false) {
+async function batchGenerate(apiKey, prompts, size, concurrency, outputDir, apiBase, isVariation = false) {
   const total = prompts.length;
   const results = new Array(total);
   let nextIdx = 0;
@@ -329,7 +348,7 @@ async function batchGenerate(apiKey, prompts, size, concurrency, outputDir, isVa
       } else {
         console.log(`[${idx + 1}/${total}] 生成中: "${prompt.slice(0, 30)}${prompt.length > 30 ? "..." : ""}"`);
       }
-      const result = await generate(apiKey, prompt, size, outputDir);
+      const result = await generate(apiKey, prompt, size, outputDir, apiBase);
       results[idx] = { prompt, ...result };
       if (result.ok) {
         console.log(`✅ [${idx + 1}/${total}] ${(result.elapsed / 1000).toFixed(1)}s`);
@@ -343,13 +362,13 @@ async function batchGenerate(apiKey, prompts, size, concurrency, outputDir, isVa
   return results;
 }
 
-async function runBatch(apiKey, prompts, size, concurrency, outputDir, isVariation = false) {
+async function runBatch(apiKey, prompts, size, concurrency, outputDir, apiBase, isVariation = false) {
   if (!isVariation) {
     console.log(`\n📦 批量 ${prompts.length} 张\n`);
   }
 
   const startAll = Date.now();
-  const results = await batchGenerate(apiKey, prompts, size, concurrency, outputDir, isVariation);
+  const results = await batchGenerate(apiKey, prompts, size, concurrency, outputDir, apiBase, isVariation);
   const totalTime = Date.now() - startAll;
 
   const ok = results.filter((r) => r.ok);
@@ -386,6 +405,7 @@ function printUsage() {
 
 CONFIG:
   --get-config                              Show current config (JSON)
+  --set-site <old|new>                      Save API site (old=api.opentoken.io, new=cn2.gw.opentoken.io)
   --set-key <key>                           Save API key
   --set-quick-mode --quality Q --ratio R --count N   Save quick mode defaults
   --set-batch-mode --quality Q --ratio R --concurrency N   Save batch mode defaults
@@ -417,6 +437,7 @@ function parseArgs(argv) {
   while (i < argv.length) {
     const a = argv[i];
     if      (a === "--get-config")                  args.flags.getConfig = true;
+    else if (a === "--set-site" && argv[i + 1])     args.flags.setSite = argv[++i];
     else if (a === "--set-key" && argv[i + 1])      args.flags.setKey = argv[++i];
     else if (a === "--set-quick-mode")               args.flags.setQuickMode = true;
     else if (a === "--set-batch-mode")                args.flags.setBatchMode = true;
@@ -451,9 +472,30 @@ async function main() {
     console.log(JSON.stringify({
       hasKey: !!cfg?.apiKey,
       keyPreview: cfg?.apiKey ? cfg.apiKey.slice(0, 8) + "..." + cfg.apiKey.slice(-4) : null,
+      apiSite: cfg?.apiSite || null,
+      apiBase: cfg ? resolveApiBase(cfg) : null,
       quickMode: cfg?.quickMode || null,
       batchMode: cfg?.batchMode || null,
     }, null, 2));
+    process.exit(0);
+  }
+
+  if (flags.setSite) {
+    const site = normalizeApiSite(flags.setSite);
+    if (!site) {
+      console.error('ERROR: --set-site must be "old" or "new".');
+      process.exit(1);
+    }
+    const cfg = loadConfig() || {};
+    cfg.apiSite = site;
+    cfg.apiBase = API_SITES[site].base;
+    saveConfig(cfg);
+    console.log([
+      `✅ 站点已保存！`,
+      ``,
+      `🌐 当前站点: ${API_SITES[site].label}`,
+      `🔗 Host: ${API_SITES[site].host}`,
+    ].join("\n"));
     process.exit(0);
   }
 
@@ -529,6 +571,7 @@ async function main() {
 
     const apiKey = getApiKey();
     const cfg = loadConfig();
+    const apiBase = resolveApiBase(cfg);
     const qm = cfg?.quickMode;
     const quality = (flags.quality || qm?.quality || DEFAULTS.quality).toUpperCase();
     const ratio = (flags.ratio || qm?.ratio || DEFAULTS.ratio).toLowerCase();
@@ -539,13 +582,13 @@ async function main() {
     if (images.length > 1) {
       const bm = cfg?.batchMode;
       const concurrency = Math.max(1, Math.min(flags.concurrency ?? bm?.concurrency ?? DEFAULTS.concurrency, 10));
-      process.exit(await runBatchEdit(apiKey, images, prompts[0], size, concurrency, outputDir));
+      process.exit(await runBatchEdit(apiKey, images, prompts[0], size, concurrency, outputDir, apiBase));
     }
 
     const count = Math.max(1, Math.min(flags.count ?? 1, 4));
 
     if (count > 1) {
-      const result = await editImage(apiKey, images[0], prompts[0], size, outputDir, count);
+      const result = await editImage(apiKey, images[0], prompts[0], size, outputDir, apiBase, count);
       if (result.ok) {
         const NUM = ["①", "②", "③", "④"];
         const totalMB = result.results.reduce((sum, r) => sum + parseFloat(r.fileSize), 0).toFixed(2);
@@ -561,7 +604,7 @@ async function main() {
       process.exit(0);
     }
 
-    const result = await editImage(apiKey, images[0], prompts[0], size, outputDir);
+    const result = await editImage(apiKey, images[0], prompts[0], size, outputDir, apiBase);
     if (result.ok) {
       console.log(`✏️ "${prompts[0]}"\n\n✅ ${(result.elapsed / 1000).toFixed(1)}s ｜ ${result.fileSize}\n📍 ${result.path}\n🖼️ 原图: ${result.sourceName}`);
     } else {
@@ -575,6 +618,7 @@ async function main() {
 
   const apiKey = getApiKey();
   const cfg = loadConfig();
+  const apiBase = resolveApiBase(cfg);
   const isBatch = !!flags.batchFile || !!flags.batchInline;
 
   // Parameter resolution: explicit flag → mode config → hardcoded default
@@ -608,14 +652,14 @@ async function main() {
       console.error("ERROR: Batch file must be a JSON array of prompt strings.");
       process.exit(1);
     }
-    process.exit(await runBatch(apiKey, bp, size, concurrency, outputDir));
+    process.exit(await runBatch(apiKey, bp, size, concurrency, outputDir, apiBase));
   }
 
   // Batch inline
   if (flags.batchInline && prompts.length >= 1) {
     const bm = cfg?.batchMode;
     const concurrency = Math.max(1, Math.min(flags.concurrency ?? bm?.concurrency ?? DEFAULTS.concurrency, 10));
-    process.exit(await runBatch(apiKey, prompts, size, concurrency, outputDir));
+    process.exit(await runBatch(apiKey, prompts, size, concurrency, outputDir, apiBase));
   }
 
   // Single prompt — resolve count from flag → quickMode config → default
@@ -625,13 +669,13 @@ async function main() {
 
   if (count > 1) {
     console.log();
-    process.exit(await runBatch(apiKey, Array(count).fill(prompt), size, Math.min(count, 4), outputDir, true));
+    process.exit(await runBatch(apiKey, Array(count).fill(prompt), size, Math.min(count, 4), outputDir, apiBase, true));
   }
 
   // Single image
   console.log(`\n⏳ 生成中...\n`);
 
-  const result = await generate(apiKey, prompt, size, outputDir);
+  const result = await generate(apiKey, prompt, size, outputDir, apiBase);
   if (result.ok) {
     console.log(`🎨 "${prompt}"\n\n✅ ${(result.elapsed / 1000).toFixed(1)}s ｜ ${result.fileSize}\n📍 ${result.path}`);
   } else {

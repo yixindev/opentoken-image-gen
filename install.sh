@@ -37,7 +37,7 @@ echo "✅ Installed."
 echo
 echo "Next steps:"
 echo "1. Restart Codex, or start a new task so the skill list refreshes."
-echo "2. First use will ask for your OpenToken API Key."
+echo "2. First use will ask for your OpenToken site and API Key."
 echo "3. Config will be saved at: $HOME/.codex/opentoken-image-gen-config.json"
 echo
 echo "Quick check:"
